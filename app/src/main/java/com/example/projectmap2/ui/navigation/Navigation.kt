@@ -7,7 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.projectmap2.ui.screens.LoginScreen
 import com.example.projectmap2.ui.screens.RegisterScreen
-//import com.example.projectmap2.ui.screens.DashboardScreen
+import com.example.projectmap2.ui.screens.DashboardScreen
 
 // Navigation routes
 sealed class Screen(val route: String) {
@@ -53,16 +53,16 @@ fun AppNavigation(
         }
 
         // Dashboard Screen
-        //composable(Screen.Dashboard.route) { backStackEntry ->
-          //  val userId = backStackEntry.arguments?.getString("userId") ?: ""
-            //DashboardScreen(
-              //  userId = userId,
-                //onLogout = {
-                  //  navController.navigate(Screen.Login.route) {
-                    //    popUpTo(0) { inclusive = true }
-                    //}
-                //}
-            //)
-        //}
+        composable(Screen.Dashboard.route) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            DashboardScreen(
+                userId = userId,
+                onLogout = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
+        }
     }
 }
