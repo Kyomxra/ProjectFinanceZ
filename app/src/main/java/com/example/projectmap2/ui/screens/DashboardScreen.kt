@@ -35,6 +35,8 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 import android.content.res.Configuration
+import androidx.navigation.NavController
+import com.example.projectmap2.ui.navigation.Screen
 
 data class Transaction(
     val title: String,
@@ -47,6 +49,7 @@ data class Transaction(
 @Composable
 fun DashboardScreen(
     userId: String,
+    navController: NavController,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -100,8 +103,12 @@ fun DashboardScreen(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 DrawerMenuItem(R.drawable.profile, "Profile") {
-                    // Navigate to Profile
+                    scope.launch {
+                        drawerState.close()
+                    }
+                    navController.navigate(Screen.Profile.route)
                 }
+
                 DrawerMenuItem(R.drawable.inbox, "Inbox") {
                     Toast.makeText(context, "Inbox clicked", Toast.LENGTH_SHORT).show()
                 }
@@ -307,20 +314,21 @@ fun DashboardScreen(
     }
 
     // Bottom Sheet
+    // Bottom Sheet
     if (showBottomSheet) {
         BottomSheetOptions(
             onDismiss = { showBottomSheet = false },
             onIncomeClick = {
                 showBottomSheet = false
-                Toast.makeText(context, "Tambah Pemasukan", Toast.LENGTH_SHORT).show()
+                navController.navigate(Screen.AddIncome.createRoute(userId))
             },
             onExpenseClick = {
                 showBottomSheet = false
-                Toast.makeText(context, "Tambah Pengeluaran", Toast.LENGTH_SHORT).show()
+                navController.navigate(Screen.AddExpense.createRoute(userId))
             },
             onSavingClick = {
                 showBottomSheet = false
-                Toast.makeText(context, "Tambah Tabungan", Toast.LENGTH_SHORT).show()
+                navController.navigate(Screen.AddSaving.createRoute(userId))
             }
         )
     }

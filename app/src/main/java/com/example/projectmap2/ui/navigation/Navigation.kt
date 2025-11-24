@@ -5,16 +5,24 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.projectmap2.ui.screens.LoginScreen
-import com.example.projectmap2.ui.screens.RegisterScreen
-import com.example.projectmap2.ui.screens.DashboardScreen
+import com.example.projectmap2.ui.screens.*
 
 // Navigation routes
 sealed class Screen(val route: String) {
     object Login : Screen("login")
     object Register : Screen("register")
+    object Profile : Screen("profile")
     object Dashboard : Screen("dashboard/{userId}") {
         fun createRoute(userId: String) = "dashboard/$userId"
+    }
+    object AddIncome : Screen("add_income/{userId}") {
+        fun createRoute(userId: String) = "add_income/$userId"
+    }
+    object AddExpense : Screen("add_expense/{userId}") {
+        fun createRoute(userId: String) = "add_expense/$userId"
+    }
+    object AddSaving : Screen("add_saving/{userId}") {
+        fun createRoute(userId: String) = "add_saving/$userId"
     }
 }
 
@@ -57,10 +65,53 @@ fun AppNavigation(
             val userId = backStackEntry.arguments?.getString("userId") ?: ""
             DashboardScreen(
                 userId = userId,
+                navController = navController,
                 onLogout = {
                     navController.navigate(Screen.Login.route) {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        // Profile Screen
+        composable(Screen.Profile.route) {
+            ProfileScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // Add Income Screen
+        composable(Screen.AddIncome.route) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            AddIncomeScreen(
+                userId = userId,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // Add Expense Screen
+        composable(Screen.AddExpense.route) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            AddExpenseScreen(
+                userId = userId,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // Add Saving Screen
+        composable(Screen.AddSaving.route) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            AddSavingScreen(
+                userId = userId,
+                onNavigateBack = {
+                    navController.popBackStack()
                 }
             )
         }
