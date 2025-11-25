@@ -82,38 +82,5 @@ fun AppNavigation(
                 }
             )
         }
-
-        // Add Income Screen
-        composable(Screen.AddIncome.route) { backStackEntry ->
-            val userId = backStackEntry.arguments?.getString("userId") ?: ""
-            AddIncomeScreen(
-                userId = userId,
-                onNavigateBack = {
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        // Add Expense Screen
-        composable(Screen.AddExpense.route) { backStackEntry ->
-            val userId = backStackEntry.arguments?.getString("userId") ?: ""
-            AddExpenseScreen(
-                userId = userId,
-                onNavigateBack = {
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        // Add Saving Screen
-        composable(Screen.AddSaving.route) { backStackEntry ->
-            val userId = backStackEntry.arguments?.getString("userId") ?: ""
-            AddSavingScreen(
-                userId = userId,
-                onNavigateBack = {
-                    navController.popBackStack()
-                }
-            )
-        }
     }
 }

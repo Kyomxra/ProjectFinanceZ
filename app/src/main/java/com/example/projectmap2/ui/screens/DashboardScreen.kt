@@ -70,6 +70,9 @@ fun DashboardScreen(
     var totalExpense by remember { mutableIntStateOf(0) }
     var transactions by remember { mutableStateOf(listOf<Transaction>()) }
     var showBottomSheet by remember { mutableStateOf(false) }
+    var showIncomeDialog by remember { mutableStateOf(false) }
+    var showExpenseDialog by remember { mutableStateOf(false) }
+    var showSavingDialog by remember { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -314,21 +317,77 @@ fun DashboardScreen(
     }
 
     // Bottom Sheet
-    // Bottom Sheet
     if (showBottomSheet) {
         BottomSheetOptions(
             onDismiss = { showBottomSheet = false },
             onIncomeClick = {
                 showBottomSheet = false
-                navController.navigate(Screen.AddIncome.createRoute(userId))
+                showIncomeDialog = true
             },
             onExpenseClick = {
                 showBottomSheet = false
-                navController.navigate(Screen.AddExpense.createRoute(userId))
+                showExpenseDialog = true
             },
             onSavingClick = {
                 showBottomSheet = false
-                navController.navigate(Screen.AddSaving.createRoute(userId))
+                showSavingDialog = true
+            }
+        )
+    }
+
+    if (showIncomeDialog) {
+        AddIncomeDialog(
+            userId = userId,
+            onDismiss = { showIncomeDialog = false },
+            onSuccess = {
+                showIncomeDialog = false
+                // Reload data
+                scope.launch {
+                    loadSummaryAndTransactions(db, userId) { month, income, expense, txns ->
+                        monthName = month
+                        totalIncome = income
+                        totalExpense = expense
+                        transactions = txns
+                    }
+                }
+            }
+        )
+    }
+
+    if (showExpenseDialog) {
+        AddExpenseDialog(
+            userId = userId,
+            onDismiss = { showExpenseDialog = false },
+            onSuccess = {
+                showExpenseDialog = false
+                // Reload data
+                scope.launch {
+                    loadSummaryAndTransactions(db, userId) { month, income, expense, txns ->
+                        monthName = month
+                        totalIncome = income
+                        totalExpense = expense
+                        transactions = txns
+                    }
+                }
+            }
+        )
+    }
+
+    if (showSavingDialog) {
+        AddSavingDialog(
+            userId = userId,
+            onDismiss = { showSavingDialog = false },
+            onSuccess = {
+                showSavingDialog = false
+                // Reload data
+                scope.launch {
+                    loadSummaryAndTransactions(db, userId) { month, income, expense, txns ->
+                        monthName = month
+                        totalIncome = income
+                        totalExpense = expense
+                        transactions = txns
+                    }
+                }
             }
         )
     }
