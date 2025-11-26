@@ -24,6 +24,9 @@ sealed class Screen(val route: String) {
     object AddSaving : Screen("add_saving/{userId}") {
         fun createRoute(userId: String) = "add_saving/$userId"
     }
+    object Goals : Screen("goals/{userId}") {
+        fun createRoute(userId: String) = "goals/$userId"
+    }
 }
 
 @Composable
@@ -80,6 +83,15 @@ fun AppNavigation(
                 onNavigateBack = {
                     navController.popBackStack()
                 }
+            )
+        }
+
+        //Goals screen
+        composable(Screen.Goals.route) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            GoalsScreen(
+                userId = userId,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

@@ -284,7 +284,7 @@ fun DashboardScreen(
                                     title = "Target Tabungan",
                                     modifier = Modifier.weight(1f).padding(8.dp)
                                 ) {
-                                    // Navigate to Goals
+                                    navController.navigate(Screen.Goals.createRoute(userId))
                                 }
 
                                 MenuCard(
