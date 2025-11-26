@@ -50,7 +50,8 @@ data class Transaction(
 fun DashboardScreen(
     userId: String,
     navController: NavController,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onNavigateToRecurringIncome: () -> Unit
 ) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE)
@@ -271,12 +272,14 @@ fun DashboardScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.Center
                             ) {
+
                                 MenuCard(
                                     iconRes = R.drawable.wallet,
                                     title = "Pendapatan Pokok",
                                     modifier = Modifier.weight(1f).padding(8.dp)
                                 ) {
-                                    // Navigate to RecurringIncome
+
+                                    onNavigateToRecurringIncome()
                                 }
 
                                 MenuCard(

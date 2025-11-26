@@ -27,6 +27,9 @@ sealed class Screen(val route: String) {
     object Goals : Screen("goals/{userId}") {
         fun createRoute(userId: String) = "goals/$userId"
     }
+    object RecurringIncome : Screen("recurring_income/{userId}") {
+        fun createRoute(userId: String) = "recurring_income/$userId"
+    }
 }
 
 @Composable
@@ -73,6 +76,9 @@ fun AppNavigation(
                     navController.navigate(Screen.Login.route) {
                         popUpTo(0) { inclusive = true }
                     }
+                },
+                onNavigateToRecurringIncome = {
+                    navController.navigate(Screen.RecurringIncome.createRoute(userId))
                 }
             )
         }
@@ -86,10 +92,19 @@ fun AppNavigation(
             )
         }
 
-        //Goals screen
+        // Goals Screen
         composable(Screen.Goals.route) { backStackEntry ->
             val userId = backStackEntry.arguments?.getString("userId") ?: ""
             GoalsScreen(
+                userId = userId,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // RecurringIncome Screen
+        composable(Screen.RecurringIncome.route) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            RecurringIncomeScreen(
                 userId = userId,
                 onNavigateBack = { navController.popBackStack() }
             )
