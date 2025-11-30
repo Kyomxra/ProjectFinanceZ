@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
+    id("com.google.secrets_gradle_plugin") version "0.6.1"
 }
 
 android {
@@ -28,6 +29,13 @@ android {
             )
         }
     }
+    secrets {
+        // To add your Maps API key to this project:
+        // 1. If the secrets.properties file does not exist, create it in the same folder as the local.properties file.
+        // 2. Add this line, where YOUR_API_KEY is your API key:
+        //        MAPS_API_KEY=YOUR_API_KEY
+        propertiesFileName = "local.properties"
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -48,6 +56,8 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("de.hdodenhof:circleimageview:3.1.0")
+    implementation("androidx.compose.material:material-icons-extended")
+
 
     // ✅ Navigation Compose
     implementation("androidx.navigation:navigation-compose:2.8.4")

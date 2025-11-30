@@ -5,6 +5,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.projectmap.LocationScreen
 import com.example.projectmap2.ui.screens.*
 
 // Navigation routes
@@ -14,6 +15,9 @@ sealed class Screen(val route: String) {
     object Profile : Screen("profile")
     object Dashboard : Screen("dashboard/{userId}") {
         fun createRoute(userId: String) = "dashboard/$userId"
+    }
+    object Location : Screen("location/{userId}") {
+        fun createRoute(userId: String) = "location/$userId"
     }
     object AddIncome : Screen("add_income/{userId}") {
         fun createRoute(userId: String) = "add_income/$userId"
@@ -29,6 +33,9 @@ sealed class Screen(val route: String) {
     }
     object RecurringIncome : Screen("recurring_income/{userId}") {
         fun createRoute(userId: String) = "recurring_income/$userId"
+    }
+    object Report : Screen("report/{userId}") {
+        fun createRoute(userId: String) = "report/$userId"
     }
 }
 
@@ -50,6 +57,17 @@ fun AppNavigation(
                     navController.navigate(Screen.Dashboard.createRoute(userId)) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        // Location Screen
+        composable(Screen.Location.route) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            LocationScreen(
+                userId = userId,
+                onNavigateToHome = {
+                    navController.popBackStack()
                 }
             )
         }
@@ -105,6 +123,15 @@ fun AppNavigation(
         composable(Screen.RecurringIncome.route) { backStackEntry ->
             val userId = backStackEntry.arguments?.getString("userId") ?: ""
             RecurringIncomeScreen(
+                userId = userId,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // Report Screen
+        composable(Screen.Report.route) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            ReportScreen(
                 userId = userId,
                 onNavigateBack = { navController.popBackStack() }
             )

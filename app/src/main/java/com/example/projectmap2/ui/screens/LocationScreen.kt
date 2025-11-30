@@ -1,0 +1,499 @@
+package com.example.projectmap
+
+import android.Manifest
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.location.Location
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.MapView
+import com.google.android.gms.maps.model.*
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.tasks.await
+import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.*
+
+data class TransactionWithLocation(
+    val id: String,
+    val name: String,
+    val latitude: Double,
+    val longitude: Double,
+    val amount: Double,
+    val category: String,
+    val date: String,
+    val userId: String,
+    val type: String
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LocationScreen(
+    userId: String,
+    onNavigateToHome: () -> Unit
+) {
+    val context = LocalContext.current
+
+    var transactions by remember { mutableStateOf<List<TransactionWithLocation>>(emptyList()) }
+    var currentLocation by remember { mutableStateOf<Location?>(null) }
+    var hasLocationPermission by remember { mutableStateOf(false) }
+    var mapView by remember { mutableStateOf<MapView?>(null) }
+    var googleMap by remember { mutableStateOf<GoogleMap?>(null) }
+
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+    val firestore = remember { FirebaseFirestore.getInstance() }
+
+    // Permission launcher
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasLocationPermission = isGranted
+    }
+
+    // Request permission on first composition
+    LaunchedEffect(Unit) {
+        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    // Get current location
+    LaunchedEffect(hasLocationPermission) {
+        if (hasLocationPermission) {
+            try {
+                @Suppress("MissingPermission")
+                val location = fusedLocationClient.lastLocation.await()
+                currentLocation = location
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    // Load transactions from Firestore
+    LaunchedEffect(userId) {
+        firestore.collection("Transactions")
+            .whereEqualTo("user_id", userId)
+            .whereEqualTo("type", "expense")
+            .addSnapshotListener { snapshots, error ->
+                if (error != null) return@addSnapshotListener
+
+                val loadedTransactions = mutableListOf<TransactionWithLocation>()
+                snapshots?.documents?.forEach { doc ->
+                    try {
+                        val name = doc.getString("note") ?: doc.getString("category") ?: "Transaksi"
+                        val category = doc.getString("category") ?: "Lainnya"
+                        val amount = (doc.getLong("amount") ?: 0L).toDouble()
+                        val timestamp = doc.getTimestamp("date")
+                        val latitude = doc.getDouble("latitude")
+                        val longitude = doc.getDouble("longitude")
+
+                        if (latitude != null && longitude != null) {
+                            val dateStr = if (timestamp != null) {
+                                SimpleDateFormat("dd MMM yyyy", Locale("id", "ID"))
+                                    .format(timestamp.toDate())
+                            } else "Unknown date"
+
+                            loadedTransactions.add(
+                                TransactionWithLocation(
+                                    id = doc.id,
+                                    name = name,
+                                    latitude = latitude,
+                                    longitude = longitude,
+                                    amount = amount,
+                                    category = category,
+                                    date = dateStr,
+                                    userId = userId,
+                                    type = "expense"
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                transactions = loadedTransactions
+            }
+    }
+
+    // Update map when transactions or location changes
+    LaunchedEffect(transactions, currentLocation, googleMap) {
+        googleMap?.let { map ->
+            map.clear()
+
+            // Show user location
+            currentLocation?.let { location ->
+                val userPosition = LatLng(location.latitude, location.longitude)
+                map.addMarker(
+                    MarkerOptions()
+                        .position(userPosition)
+                        .title("Lokasi Kamu")
+                        .icon(createUserLocationMarker())
+                        .zIndex(1000f)
+                )
+            }
+
+            // Show transactions
+            if (transactions.isNotEmpty()) {
+                val boundsBuilder = LatLngBounds.Builder()
+                val locationFrequency = mutableMapOf<String, Int>()
+
+                currentLocation?.let {
+                    boundsBuilder.include(LatLng(it.latitude, it.longitude))
+                }
+
+                transactions.forEach { transaction ->
+                    val position = LatLng(transaction.latitude, transaction.longitude)
+                    val markerColor = getCategoryColor(transaction.category)
+
+                    map.addMarker(
+                        MarkerOptions()
+                            .position(position)
+                            .title(transaction.name)
+                            .snippet("${formatCurrency(transaction.amount)} - ${transaction.category}\n${transaction.date}")
+                            .icon(createCustomMarker(markerColor, transaction.amount))
+                    )
+
+                    val locationKey = "${transaction.latitude},${transaction.longitude}"
+                    locationFrequency[locationKey] = locationFrequency.getOrDefault(locationKey, 0) + 1
+
+                    boundsBuilder.include(position)
+                }
+
+                // Draw heatmap circles
+                drawHeatmapCircles(map, locationFrequency)
+
+                // Move camera
+                try {
+                    val bounds = boundsBuilder.build()
+                    map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150))
+                } catch (e: Exception) {
+                    currentLocation?.let {
+                        map.moveCamera(CameraUpdateFactory.newLatLngZoom(
+                            LatLng(it.latitude, it.longitude), 14f
+                        ))
+                    }
+                }
+            } else {
+                currentLocation?.let {
+                    map.moveCamera(CameraUpdateFactory.newLatLngZoom(
+                        LatLng(it.latitude, it.longitude), 14f
+                    ))
+                } ?: run {
+                    map.moveCamera(CameraUpdateFactory.newLatLngZoom(
+                        LatLng(-6.200000, 106.816666), 12f
+                    ))
+                }
+            }
+        }
+    }
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar(
+                containerColor = Color.White
+            ) {
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                    label = { Text("Home") },
+                    selected = false,
+                    onClick = onNavigateToHome
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Search, contentDescription = "Lokasi") },
+                    label = { Text("Lokasi") },
+                    selected = true,
+                    onClick = { }
+                )
+            }
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            // Google Map
+            AndroidView(
+                factory = { ctx ->
+                    MapView(ctx).apply {
+                        onCreate(null)
+                        getMapAsync { map ->
+                            googleMap = map
+                            map.uiSettings.isZoomControlsEnabled = true
+                            map.uiSettings.isMyLocationButtonEnabled = false
+                        }
+                        mapView = this
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { view ->
+                    view.onResume()
+                }
+            )
+
+            // Statistics Card
+            StatisticsCard(
+                transactions = transactions,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(16.dp)
+            )
+
+            // Legend Card
+            LegendCard(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+            )
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mapView?.onDestroy()
+        }
+    }
+}
+
+@Composable
+fun StatisticsCard(
+    transactions: List<TransactionWithLocation>,
+    modifier: Modifier = Modifier
+) {
+    val totalSpent = transactions.sumOf { it.amount }
+    val locationCounts = transactions.groupingBy { it.name }.eachCount()
+    val mostFrequent = locationCounts.maxByOrNull { it.value }?.key ?: "-"
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = "Pengeluaran Bulan Ini",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray
+            )
+
+            Text(
+                text = formatCurrency(totalSpent),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF6200EE),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            Divider(
+                modifier = Modifier.padding(vertical = 12.dp),
+                color = Color.LightGray
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Total Transaksi",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = "${transactions.size} transaksi",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Recent activity",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = mostFrequent,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 4.dp),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LegendCard(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Text(
+                text = "Kategori",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            LegendItem(color = Color(0xFFFF9800), label = "Makanan")
+            Spacer(modifier = Modifier.height(4.dp))
+            LegendItem(color = Color(0xFF2196F3), label = "Transport")
+            Spacer(modifier = Modifier.height(4.dp))
+            LegendItem(color = Color(0xFF9C27B0), label = "Shopping")
+        }
+    }
+}
+
+@Composable
+fun LegendItem(color: Color, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .background(color, CircleShape)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(text = label, fontSize = 11.sp)
+    }
+}
+
+// Helper functions
+fun createUserLocationMarker(): BitmapDescriptor {
+    val size = 70
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val glowPaint = Paint().apply {
+        color = android.graphics.Color.argb(80, 33, 150, 243)
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(size / 2f, size / 2f, size / 2f, glowPaint)
+
+    val mainPaint = Paint().apply {
+        color = android.graphics.Color.rgb(33, 150, 243)
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(size / 2f, size / 2f, size / 3f, mainPaint)
+
+    val borderPaint = Paint().apply {
+        color = android.graphics.Color.WHITE
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+    canvas.drawCircle(size / 2f, size / 2f, size / 3f - 2, borderPaint)
+
+    val dotPaint = Paint().apply {
+        color = android.graphics.Color.WHITE
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(size / 2f, size / 2f, size / 8f, dotPaint)
+
+    return BitmapDescriptorFactory.fromBitmap(bitmap)
+}
+
+fun createCustomMarker(color: Int, amount: Double): BitmapDescriptor {
+    val size = when {
+        amount >= 1000000 -> 60
+        amount >= 100000 -> 50
+        else -> 40
+    }
+
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint().apply {
+        this.color = color
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+
+    canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+
+    paint.apply {
+        this.color = android.graphics.Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+    canvas.drawCircle(size / 2f, size / 2f, (size / 2f) - 2, paint)
+
+    return BitmapDescriptorFactory.fromBitmap(bitmap)
+}
+
+fun getCategoryColor(category: String): Int {
+    return when (category.lowercase()) {
+        "makan", "makanan", "food & drink" -> android.graphics.Color.rgb(255, 152, 0)
+        "transport", "transportasi" -> android.graphics.Color.rgb(33, 150, 243)
+        "belanja", "shopping" -> android.graphics.Color.rgb(156, 39, 176)
+        "hiburan", "entertainment" -> android.graphics.Color.rgb(233, 30, 99)
+        "bills", "tagihan" -> android.graphics.Color.rgb(76, 175, 80)
+        else -> android.graphics.Color.rgb(158, 158, 158)
+    }
+}
+
+fun drawHeatmapCircles(map: GoogleMap, locationFrequency: Map<String, Int>) {
+    val maxFrequency = locationFrequency.values.maxOrNull() ?: 1
+
+    locationFrequency.forEach { (locationKey, frequency) ->
+        if (frequency > 1) {
+            val coords = locationKey.split(",")
+            val position = LatLng(coords[0].toDouble(), coords[1].toDouble())
+
+            val radius = 200.0 + (frequency * 100.0)
+            val fillColor = android.graphics.Color.argb(
+                (50 + (frequency.toFloat() / maxFrequency * 80)).toInt(),
+                255, 0, 0
+            )
+
+            map.addCircle(
+                CircleOptions()
+                    .center(position)
+                    .radius(radius)
+                    .strokeColor(android.graphics.Color.argb(180, 255, 0, 0))
+                    .strokeWidth(2f)
+                    .fillColor(fillColor)
+            )
+        }
+    }
+}
+
+fun formatCurrency(amount: Double): String {
+    val formatter = NumberFormat.getCurrencyInstance(Locale("id", "ID"))
+    return formatter.format(amount).replace("Rp", "Rp ")
+}

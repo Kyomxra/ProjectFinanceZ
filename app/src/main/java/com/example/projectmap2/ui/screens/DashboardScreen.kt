@@ -35,6 +35,8 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 import android.content.res.Configuration
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.navigation.NavController
 import com.example.projectmap2.ui.navigation.Screen
 
@@ -157,18 +159,14 @@ fun DashboardScreen(
                         NavigationBarItem(
                             selected = false,
                             onClick = {
-                                // Navigate to Location
+                                navController.navigate(Screen.Location.createRoute(userId))
                             },
                             icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.location),
-                                    contentDescription = "Location",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Icon(Icons.Default.LocationOn, contentDescription = "Location")
                             },
-                            label = { Text("Location", color = Color.Black) }
+                            label = { Text("Location") }
                         )
+
                     }
                 }
             },
@@ -295,7 +293,7 @@ fun DashboardScreen(
                                     title = "Laporan Transaksi",
                                     modifier = Modifier.weight(1f).padding(8.dp)
                                 ) {
-                                    // Navigate to Report
+                                    navController.navigate(Screen.Report.createRoute(userId))
                                 }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
