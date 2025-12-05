@@ -27,7 +27,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import java.text.SimpleDateFormat
 import java.util.*
 
-// ==================== INCOME DIALOG ====================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddIncomeDialog(
@@ -658,7 +657,6 @@ fun AddSavingDialog(
     }
 }
 
-// ==================== DATE PICKER HELPER ====================
 private fun showDatePicker(
     context: Context,
     calendar: Calendar,

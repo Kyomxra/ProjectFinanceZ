@@ -1,4 +1,4 @@
-package com.example.projectmap
+package com.example.projectmap2.ui.screens
 
 import android.Manifest
 import android.graphics.Bitmap
@@ -55,6 +55,7 @@ fun LocationScreen(
     onNavigateToHome: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 
     var transactions by remember { mutableStateOf<List<TransactionWithLocation>>(emptyList()) }
     var currentLocation by remember { mutableStateOf<Location?>(null) }
@@ -70,33 +71,73 @@ fun LocationScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasLocationPermission = isGranted
-    }
-
-    // Request permission on first composition
-    LaunchedEffect(Unit) {
-        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
-
-    // Get current location
-    LaunchedEffect(hasLocationPermission) {
-        if (hasLocationPermission) {
+        if (isGranted) {
             try {
-                @Suppress("MissingPermission")
-                val location = fusedLocationClient.lastLocation.await()
-                currentLocation = location
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    currentLocation = location
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
 
-    // Load transactions from Firestore
+    // Request permission on first composition
+    LaunchedEffect(Unit) {
+        val permission = Manifest.permission.ACCESS_FINE_LOCATION
+        val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, permission
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            hasLocationPermission = true
+        } else {
+            locationPermissionLauncher.launch(permission)
+        }
+    }
+
+    // Get current location
+    LaunchedEffect(hasLocationPermission) {
+        if (hasLocationPermission) {
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    currentLocation = location
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    // Load transactions from Firestore - HANYA BULAN INI
     LaunchedEffect(userId) {
+        // PERBAIKAN: Hitung start dan end bulan ini
+        val calendar = Calendar.getInstance()
+        val currentYear = calendar.get(Calendar.YEAR)
+        val currentMonth = calendar.get(Calendar.MONTH)
+
+        // Start of this month (tanggal 1 jam 00:00:00)
+        calendar.set(currentYear, currentMonth, 1, 0, 0, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        val startOfMonth = com.google.firebase.Timestamp(calendar.time)
+
+        // Start of next month (untuk batas atas)
+        calendar.set(currentYear, currentMonth + 1, 1, 0, 0, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        val startOfNextMonth = com.google.firebase.Timestamp(calendar.time)
+
+        android.util.Log.d("LocationScreen", "Loading transactions from ${startOfMonth.toDate()} to ${startOfNextMonth.toDate()}")
+
         firestore.collection("Transactions")
             .whereEqualTo("user_id", userId)
             .whereEqualTo("type", "expense")
+            .whereGreaterThanOrEqualTo("date", startOfMonth)
+            .whereLessThan("date", startOfNextMonth)
             .addSnapshotListener { snapshots, error ->
-                if (error != null) return@addSnapshotListener
+                if (error != null) {
+                    android.util.Log.e("LocationScreen", "Error loading transactions", error)
+                    return@addSnapshotListener
+                }
 
                 val loadedTransactions = mutableListOf<TransactionWithLocation>()
                 snapshots?.documents?.forEach { doc ->
@@ -129,10 +170,11 @@ fun LocationScreen(
                             )
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        android.util.Log.e("LocationScreen", "Error parsing transaction", e)
                     }
                 }
                 transactions = loadedTransactions
+                android.util.Log.d("LocationScreen", "Loaded ${loadedTransactions.size} transactions for this month")
             }
     }
 
@@ -238,17 +280,32 @@ fun LocationScreen(
                 factory = { ctx ->
                     MapView(ctx).apply {
                         onCreate(null)
+                        onResume()
                         getMapAsync { map ->
                             googleMap = map
                             map.uiSettings.isZoomControlsEnabled = true
                             map.uiSettings.isMyLocationButtonEnabled = false
+
+                            if (hasLocationPermission) {
+                                try {
+                                    map.isMyLocationEnabled = true
+                                } catch (e: SecurityException) {
+                                    e.printStackTrace()
+                                }
+                            }
                         }
                         mapView = this
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
                 update = { view ->
-                    view.onResume()
+                    when (lifecycleOwner.lifecycle.currentState) {
+                        androidx.lifecycle.Lifecycle.State.RESUMED -> view.onResume()
+                        androidx.lifecycle.Lifecycle.State.STARTED -> view.onStart()
+                        androidx.lifecycle.Lifecycle.State.CREATED -> view.onCreate(null)
+                        androidx.lifecycle.Lifecycle.State.DESTROYED -> view.onDestroy()
+                        else -> {}
+                    }
                 }
             )
 
@@ -269,8 +326,22 @@ fun LocationScreen(
         }
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mapView?.onResume()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mapView?.onPause()
+                androidx.lifecycle.Lifecycle.Event.ON_START -> mapView?.onStart()
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> mapView?.onStop()
+                androidx.lifecycle.Lifecycle.Event.ON_DESTROY -> mapView?.onDestroy()
+                else -> {}
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             mapView?.onDestroy()
         }
     }
@@ -283,12 +354,13 @@ fun StatisticsCard(
 ) {
     val totalSpent = transactions.sumOf { it.amount }
     val locationCounts = transactions.groupingBy { it.name }.eachCount()
-    val mostFrequent = locationCounts.maxByOrNull { it.value }?.key ?: "-"
+    val mostFrequent = locationCounts.maxByOrNull { it.value }
 
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(8.dp)
+        elevation = CardDefaults.cardElevation(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -308,7 +380,7 @@ fun StatisticsCard(
                 modifier = Modifier.padding(top = 4.dp)
             )
 
-            Divider(
+            HorizontalDivider(
                 modifier = Modifier.padding(vertical = 12.dp),
                 color = Color.LightGray
             )
@@ -331,15 +403,22 @@ fun StatisticsCard(
                     )
                 }
 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.End
+                ) {
                     Text(
-                        text = "Recent activity",
+                        text = "Lokasi Favorit",
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
                     Text(
-                        text = mostFrequent,
-                        fontSize = 16.sp,
+                        text = if (mostFrequent != null) {
+                            "${mostFrequent.key}"
+                        } else {
+                            "-"
+                        },
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 4.dp),
                         maxLines = 1

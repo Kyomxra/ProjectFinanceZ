@@ -15,12 +15,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.projectmap2.R
 import com.example.projectmap2.ui.theme.*
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -78,9 +80,11 @@ fun LoginScreen(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    Text(
-                        text = "💰",
-                        fontSize = 60.sp
+                    Icon(
+                        painter = painterResource(id = R.drawable.dollar),
+                        contentDescription = "Dollar Logo",
+                        modifier = Modifier.size(60.dp),
+                        tint = Color(0xFF4CAF50)
                     )
                 }
             }

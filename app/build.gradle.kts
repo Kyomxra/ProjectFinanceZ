@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
-    id("com.google.secrets_gradle_plugin") version "0.6.1"
+    id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
 }
 
 android {
@@ -29,24 +29,27 @@ android {
             )
         }
     }
-    secrets {
-        // To add your Maps API key to this project:
-        // 1. If the secrets.properties file does not exist, create it in the same folder as the local.properties file.
-        // 2. Add this line, where YOUR_API_KEY is your API key:
-        //        MAPS_API_KEY=YOUR_API_KEY
-        propertiesFileName = "local.properties"
-    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     kotlinOptions {
         jvmTarget = "11"
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.8"
     }
 }
 
 dependencies {
-
     // ✅ Core Compose
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.compose.ui:ui")
@@ -57,7 +60,6 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("de.hdodenhof:circleimageview:3.1.0")
     implementation("androidx.compose.material:material-icons-extended")
-
 
     // ✅ Navigation Compose
     implementation("androidx.navigation:navigation-compose:2.8.4")
@@ -100,7 +102,4 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
 }

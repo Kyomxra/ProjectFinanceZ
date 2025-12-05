@@ -259,11 +259,13 @@ fun AddGoalDialog(
 ) {
     var goalName by remember { mutableStateOf("") }
     var targetAmount by remember { mutableStateOf("") }
+
+    // PERBAIKAN: Buat calendar instance yang proper
+    val calendar = remember { Calendar.getInstance() }
+
     var dateText by remember {
-        val calendar = Calendar.getInstance()
         mutableStateOf(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(calendar.time))
     }
-    val calendar = Calendar.getInstance()
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -309,6 +311,7 @@ fun AddGoalDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // PERBAIKAN: TextField untuk deadline
                 OutlinedTextField(
                     value = dateText,
                     onValueChange = {},
@@ -317,18 +320,28 @@ fun AddGoalDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            DatePickerDialog(
+                            // PERBAIKAN: DatePickerDialog yang benar
+                            val datePickerDialog = DatePickerDialog(
                                 context,
                                 { _, year, month, day ->
                                     calendar.set(year, month, day)
-                                    dateText = "$day/${month + 1}/$year"
+                                    dateText = String.format("%02d/%02d/%04d", day, month + 1, year)
                                 },
                                 calendar.get(Calendar.YEAR),
                                 calendar.get(Calendar.MONTH),
                                 calendar.get(Calendar.DAY_OF_MONTH)
-                            ).apply {
-                                datePicker.minDate = System.currentTimeMillis()
-                            }.show()
+                            )
+
+                            // PERBAIKAN: Set minDate ke besok (hari ini + 1)
+                            val tomorrow = Calendar.getInstance()
+                            tomorrow.add(Calendar.DAY_OF_MONTH, 1)
+                            tomorrow.set(Calendar.HOUR_OF_DAY, 0)
+                            tomorrow.set(Calendar.MINUTE, 0)
+                            tomorrow.set(Calendar.SECOND, 0)
+                            tomorrow.set(Calendar.MILLISECOND, 0)
+                            datePickerDialog.datePicker.minDate = tomorrow.timeInMillis
+
+                            datePickerDialog.show()
                         },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = DarkBlue

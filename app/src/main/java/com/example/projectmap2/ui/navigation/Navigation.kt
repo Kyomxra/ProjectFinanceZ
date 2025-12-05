@@ -5,7 +5,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.projectmap.LocationScreen
+import com.example.projectmap2.ui.screens.LocationScreen
 import com.example.projectmap2.ui.screens.*
 
 // Navigation routes
