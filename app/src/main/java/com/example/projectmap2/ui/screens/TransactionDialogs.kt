@@ -26,6 +26,9 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.projectmap2.ui.models.MLState
+import com.example.projectmap2.ui.viewmodels.MLViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -219,6 +222,7 @@ fun AddExpenseDialog(
 ) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
+    val mlViewModel: MLViewModel = viewModel()  // ADD THIS
 
     val expenseTypes = listOf("Makan", "Transport", "Belanja", "Hiburan", "Lainnya")
     var selectedType by remember { mutableStateOf(expenseTypes[0]) }
@@ -232,6 +236,23 @@ fun AddExpenseDialog(
 
     var amount by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+
+    // ADD ML STATE
+    val mlState by mlViewModel.mlState.collectAsState()
+
+    // Initialize ML Model
+    LaunchedEffect(Unit) {
+        mlViewModel.initializeModel(context)
+    }
+
+    // Auto-predict category when user types note
+    LaunchedEffect(note) {
+        if (note.length >= 3) {
+            mlViewModel.predictCategory(note)
+        } else {
+            mlViewModel.resetState()
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -341,6 +362,81 @@ fun AddExpenseDialog(
                         unfocusedBorderColor = Color.Gray
                     )
                 )
+
+                // ============ ML PREDICTION DISPLAY ============
+                Spacer(modifier = Modifier.height(8.dp))
+
+                when (val state = mlState) {
+                    is MLState.Loading -> {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = DarkBlue
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Menganalisis...",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                    is MLState.Success -> {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xFFE8F5E9),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🤖",
+                                    fontSize = 20.sp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "AI Prediksi:",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF2E7D32),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${state.prediction.category} (${(state.prediction.confidence * 100).toInt()}%)",
+                                        fontSize = 14.sp,
+                                        color = Color(0xFF1B5E20),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                // Quick apply button
+                                TextButton(
+                                    onClick = {
+                                        selectedType = state.prediction.category
+                                    }
+                                ) {
+                                    Text("Pakai", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                    is MLState.Error -> {
+                        Text(
+                            text = "⚠️ ML unavailable",
+                            fontSize = 11.sp,
+                            color = Color.Red
+                        )
+                    }
+                    else -> {}
+                }
+                // ===============================================
 
                 Spacer(modifier = Modifier.height(20.dp))
 
