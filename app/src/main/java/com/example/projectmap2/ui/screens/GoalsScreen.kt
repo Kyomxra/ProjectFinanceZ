@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -25,25 +24,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.projectmap2.R
+import com.example.projectmap2.ui.models.Goal
+import com.example.projectmap2.ui.models.GoalOperationState
 import com.example.projectmap2.ui.theme.*
-import com.google.firebase.Timestamp
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+import com.example.projectmap2.ui.viewmodels.GoalsViewModel
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
-
-data class Goal(
-    val id: String,
-    val goalName: String,
-    val targetAmount: Long,
-    val currentAmount: Long,
-    val deadline: Timestamp,
-    val status: String
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,37 +42,33 @@ fun GoalsScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val db = FirebaseFirestore.getInstance()
-    val scope = rememberCoroutineScope()
+    val viewModel: GoalsViewModel = viewModel()
 
-    var goals by remember { mutableStateOf(listOf<Goal>()) }
+    val goals by viewModel.goals.collectAsState()
+    val operationState by viewModel.operationState.collectAsState()
+
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedGoal by remember { mutableStateOf<Goal?>(null) }
     var showOptionsDialog by remember { mutableStateOf(false) }
 
     // Load goals
     LaunchedEffect(userId) {
-        db.collection("Goals")
-            .whereEqualTo("user_id", userId)
-            .addSnapshotListener { snapshots, e ->
-                if (e != null) {
-                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                    return@addSnapshotListener
-                }
+        viewModel.loadGoals(userId)
+    }
 
-                if (snapshots != null) {
-                    goals = snapshots.documents.mapNotNull { doc ->
-                        Goal(
-                            id = doc.id,
-                            goalName = doc.getString("goal_name") ?: "",
-                            targetAmount = doc.getLong("target_amount") ?: 0,
-                            currentAmount = doc.getLong("current_amount") ?: 0,
-                            deadline = doc.getTimestamp("deadline") ?: Timestamp.now(),
-                            status = doc.getString("status") ?: "active"
-                        )
-                    }
-                }
+    // Handle operation state
+    LaunchedEffect(operationState) {
+        when (val state = operationState) {
+            is GoalOperationState.Success -> {
+                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                viewModel.resetOperationState()
             }
+            is GoalOperationState.Error -> {
+                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                viewModel.resetOperationState()
+            }
+            else -> {}
+        }
     }
 
     Scaffold(
@@ -146,7 +132,7 @@ fun GoalsScreen(
         AddGoalDialog(
             userId = userId,
             onDismiss = { showAddDialog = false },
-            db = db,
+            viewModel = viewModel,
             context = context
         )
     }
@@ -157,7 +143,7 @@ fun GoalsScreen(
             goal = selectedGoal!!,
             userId = userId,
             onDismiss = { showOptionsDialog = false },
-            db = db,
+            viewModel = viewModel,
             context = context
         )
     }
@@ -254,15 +240,12 @@ fun GoalItem(goal: Goal, onClick: () -> Unit) {
 fun AddGoalDialog(
     userId: String,
     onDismiss: () -> Unit,
-    db: FirebaseFirestore,
+    viewModel: GoalsViewModel,
     context: Context
 ) {
     var goalName by remember { mutableStateOf("") }
     var targetAmount by remember { mutableStateOf("") }
-
-    // PERBAIKAN: Buat calendar instance yang proper
     val calendar = remember { Calendar.getInstance() }
-
     var dateText by remember {
         mutableStateOf(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(calendar.time))
     }
@@ -311,7 +294,6 @@ fun AddGoalDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // PERBAIKAN: TextField untuk deadline
                 OutlinedTextField(
                     value = dateText,
                     onValueChange = {},
@@ -320,7 +302,6 @@ fun AddGoalDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            // PERBAIKAN: DatePickerDialog yang benar
                             val datePickerDialog = DatePickerDialog(
                                 context,
                                 { _, year, month, day ->
@@ -332,7 +313,6 @@ fun AddGoalDialog(
                                 calendar.get(Calendar.DAY_OF_MONTH)
                             )
 
-                            // PERBAIKAN: Set minDate ke besok (hari ini + 1)
                             val tomorrow = Calendar.getInstance()
                             tomorrow.add(Calendar.DAY_OF_MONTH, 1)
                             tomorrow.set(Calendar.HOUR_OF_DAY, 0)
@@ -352,40 +332,9 @@ fun AddGoalDialog(
 
                 Button(
                     onClick = {
-                        if (goalName.isEmpty()) {
-                            Toast.makeText(context, "Masukkan nama target!", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        if (targetAmount.isEmpty()) {
-                            Toast.makeText(context, "Masukkan jumlah target!", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-
-                        val amount = targetAmount.toLongOrNull()
-                        if (amount == null || amount <= 0) {
-                            Toast.makeText(context, "Jumlah harus lebih dari 0!", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-
-                        val goal = hashMapOf(
-                            "user_id" to userId,
-                            "goal_name" to goalName,
-                            "target_amount" to amount,
-                            "current_amount" to 0L,
-                            "deadline" to Timestamp(calendar.time),
-                            "status" to "active",
-                            "created_at" to Timestamp(Date())
-                        )
-
-                        db.collection("Goals")
-                            .add(goal)
-                            .addOnSuccessListener {
-                                Toast.makeText(context, "Target tabungan ditambahkan!", Toast.LENGTH_SHORT).show()
-                                onDismiss()
-                            }
-                            .addOnFailureListener { e ->
-                                Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
+                        val amount = targetAmount.toLongOrNull() ?: 0
+                        viewModel.addGoal(userId, goalName, amount, calendar.time)
+                        onDismiss()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -404,7 +353,7 @@ fun GoalOptionsDialog(
     goal: Goal,
     userId: String,
     onDismiss: () -> Unit,
-    db: FirebaseFirestore,
+    viewModel: GoalsViewModel,
     context: Context
 ) {
     val progress = if (goal.targetAmount > 0) {
@@ -441,12 +390,8 @@ fun GoalOptionsDialog(
                 if (progress >= 100 && goal.status != "completed") {
                     TextButton(
                         onClick = {
-                            db.collection("Goals").document(goal.id)
-                                .update("status", "completed")
-                                .addOnSuccessListener {
-                                    Toast.makeText(context, "Target ditandai selesai! 🎉", Toast.LENGTH_SHORT).show()
-                                    onDismiss()
-                                }
+                            viewModel.markAsCompleted(goal.id)
+                            onDismiss()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -464,20 +409,20 @@ fun GoalOptionsDialog(
     )
 
     if (showEditDialog) {
-        EditGoalDialog(goal, onDismiss = { showEditDialog = false }, db, context)
+        EditGoalDialog(goal, onDismiss = { showEditDialog = false }, viewModel, context)
     }
 
     if (showDeleteDialog) {
-        DeleteGoalDialog(goal, onDismiss = { showDeleteDialog = false; onDismiss() }, db, context)
+        DeleteGoalDialog(goal, onDismiss = { showDeleteDialog = false; onDismiss() }, viewModel)
     }
 
     if (showAddSavingDialog) {
-        AddSavingToGoalDialog(goal, userId, onDismiss = { showAddSavingDialog = false }, db, context)
+        AddSavingToGoalDialog(goal, userId, onDismiss = { showAddSavingDialog = false }, viewModel)
     }
 }
 
 @Composable
-fun EditGoalDialog(goal: Goal, onDismiss: () -> Unit, db: FirebaseFirestore, context: Context) {
+fun EditGoalDialog(goal: Goal, onDismiss: () -> Unit, viewModel: GoalsViewModel, context: Context) {
     var goalName by remember { mutableStateOf(goal.goalName) }
     var targetAmount by remember { mutableStateOf(goal.targetAmount.toString()) }
     val calendar = Calendar.getInstance().apply { time = goal.deadline.toDate() }
@@ -537,22 +482,9 @@ fun EditGoalDialog(goal: Goal, onDismiss: () -> Unit, db: FirebaseFirestore, con
 
                 Button(
                     onClick = {
-                        val amount = targetAmount.toLongOrNull()
-                        if (goalName.isEmpty() || amount == null || amount <= 0) {
-                            Toast.makeText(context, "Lengkapi semua field!", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-
-                        db.collection("Goals").document(goal.id)
-                            .update(mapOf(
-                                "goal_name" to goalName,
-                                "target_amount" to amount,
-                                "deadline" to Timestamp(calendar.time)
-                            ))
-                            .addOnSuccessListener {
-                                Toast.makeText(context, "Target berhasil diupdate!", Toast.LENGTH_SHORT).show()
-                                onDismiss()
-                            }
+                        val amount = targetAmount.toLongOrNull() ?: 0
+                        viewModel.updateGoal(goal.id, goalName, amount, calendar.time)
+                        onDismiss()
                     },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = DarkBlue)
@@ -565,7 +497,7 @@ fun EditGoalDialog(goal: Goal, onDismiss: () -> Unit, db: FirebaseFirestore, con
 }
 
 @Composable
-fun DeleteGoalDialog(goal: Goal, onDismiss: () -> Unit, db: FirebaseFirestore, context: Context) {
+fun DeleteGoalDialog(goal: Goal, onDismiss: () -> Unit, viewModel: GoalsViewModel) {
     val formatter = NumberFormat.getCurrencyInstance(Locale("id", "ID"))
     val savedAmount = formatter.format(goal.currentAmount).replace("Rp", "Rp ")
     val message = if (goal.currentAmount > 0) {
@@ -581,22 +513,8 @@ fun DeleteGoalDialog(goal: Goal, onDismiss: () -> Unit, db: FirebaseFirestore, c
         confirmButton = {
             Button(
                 onClick = {
-                    db.collection("Transactions")
-                        .whereEqualTo("goal_id", goal.id)
-                        .whereEqualTo("type", "saving")
-                        .get()
-                        .addOnSuccessListener { docs ->
-                            val batch = db.batch()
-                            docs.forEach { batch.delete(it.reference) }
-                            batch.delete(db.collection("Goals").document(goal.id))
-                            batch.commit().addOnSuccessListener {
-                                val msg = if (goal.currentAmount > 0) {
-                                    "Target dihapus! $savedAmount dikembalikan ke saldo."
-                                } else "Target dihapus!"
-                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                onDismiss()
-                            }
-                        }
+                    viewModel.deleteGoal(goal)
+                    onDismiss()
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
             ) {
@@ -610,7 +528,7 @@ fun DeleteGoalDialog(goal: Goal, onDismiss: () -> Unit, db: FirebaseFirestore, c
 }
 
 @Composable
-fun AddSavingToGoalDialog(goal: Goal, userId: String, onDismiss: () -> Unit, db: FirebaseFirestore, context: Context) {
+fun AddSavingToGoalDialog(goal: Goal, userId: String, onDismiss: () -> Unit, viewModel: GoalsViewModel) {
     var amount by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -628,33 +546,9 @@ fun AddSavingToGoalDialog(goal: Goal, userId: String, onDismiss: () -> Unit, db:
         confirmButton = {
             Button(
                 onClick = {
-                    val amt = amount.toLongOrNull()
-                    if (amt == null || amt <= 0) {
-                        Toast.makeText(context, "Jumlah harus lebih dari 0!", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-
-                    val transaction = hashMapOf(
-                        "user_id" to userId,
-                        "type" to "saving",
-                        "goal_id" to goal.id,
-                        "category" to goal.goalName,
-                        "amount" to amt,
-                        "date" to Timestamp(Date()),
-                        "created_at" to Timestamp(Date()),
-                        "note" to "Tabungan untuk ${goal.goalName}"
-                    )
-
-                    db.collection("Transactions").add(transaction).addOnSuccessListener {
-                        val goalRef = db.collection("Goals").document(goal.id)
-                        db.runTransaction { trans ->
-                            val current = trans.get(goalRef).getLong("current_amount") ?: 0L
-                            trans.update(goalRef, "current_amount", current + amt)
-                        }.addOnSuccessListener {
-                            Toast.makeText(context, "Tabungan ditambahkan!", Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        }
-                    }
+                    val amt = amount.toLongOrNull() ?: 0
+                    viewModel.addSavingToGoal(userId, goal, amt)
+                    onDismiss()
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = DarkBlue)
             ) {

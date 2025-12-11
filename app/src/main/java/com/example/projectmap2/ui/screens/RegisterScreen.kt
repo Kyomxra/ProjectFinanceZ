@@ -1,6 +1,5 @@
 package com.example.projectmap2.ui.screens
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -18,8 +17,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.projectmap2.ui.models.RegisterState
 import com.example.projectmap2.ui.theme.*
-import com.google.firebase.firestore.FirebaseFirestore
+import com.example.projectmap2.ui.viewmodels.RegisterViewModel
 
 @Composable
 fun RegisterScreen(
@@ -28,6 +29,7 @@ fun RegisterScreen(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val viewModel: RegisterViewModel = viewModel()
 
     var userId by remember { mutableStateOf("") }
     var firstName by remember { mutableStateOf("") }
@@ -36,7 +38,23 @@ fun RegisterScreen(
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
 
-    val db = FirebaseFirestore.getInstance()
+    val registerState by viewModel.registerState.collectAsState()
+    val isLoading = registerState is RegisterState.Loading
+
+    // Handle register state changes for Toast messages
+    LaunchedEffect(registerState) {
+        when (val state = registerState) {
+            is RegisterState.Success -> {
+                Toast.makeText(context, "Registrasi berhasil!", Toast.LENGTH_SHORT).show()
+                viewModel.resetState()
+            }
+            is RegisterState.Error -> {
+                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                viewModel.resetState()
+            }
+            else -> {}
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -67,6 +85,7 @@ fun RegisterScreen(
                 placeholder = { Text("User ID") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
+                enabled = !isLoading,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = DarkBlue,
                     unfocusedBorderColor = Color.LightGray
@@ -82,6 +101,7 @@ fun RegisterScreen(
                 placeholder = { Text("First Name") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
+                enabled = !isLoading,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = DarkBlue,
                     unfocusedBorderColor = Color.LightGray
@@ -97,6 +117,7 @@ fun RegisterScreen(
                 placeholder = { Text("Last Name") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
+                enabled = !isLoading,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = DarkBlue,
                     unfocusedBorderColor = Color.LightGray
@@ -112,6 +133,7 @@ fun RegisterScreen(
                 placeholder = { Text("Email") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
+                enabled = !isLoading,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = DarkBlue,
                     unfocusedBorderColor = Color.LightGray
@@ -128,6 +150,7 @@ fun RegisterScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
+                enabled = !isLoading,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = DarkBlue,
                     unfocusedBorderColor = Color.LightGray
@@ -144,6 +167,7 @@ fun RegisterScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
+                enabled = !isLoading,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = DarkBlue,
                     unfocusedBorderColor = Color.LightGray
@@ -155,20 +179,9 @@ fun RegisterScreen(
             // Register Button
             Button(
                 onClick = {
-                    if (userId.isEmpty() || firstName.isEmpty() || lastName.isEmpty() ||
-                        email.isEmpty() || password.isEmpty() || confirmPassword.isEmpty()) {
-                        Toast.makeText(context, "Isi semua data", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-
-                    if (password != confirmPassword) {
-                        Toast.makeText(context, "Password tidak sama", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-
-                    registerUser(
-                        userId, firstName, lastName, email, password,
-                        context, db, onRegisterSuccess
+                    viewModel.registerUser(
+                        userId, firstName, lastName, email, password, confirmPassword,
+                        context, onRegisterSuccess
                     )
                 },
                 modifier = Modifier
@@ -178,7 +191,8 @@ fun RegisterScreen(
                     containerColor = Color.Transparent
                 ),
                 contentPadding = PaddingValues(0.dp),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
+                enabled = !isLoading
             ) {
                 Box(
                     modifier = Modifier
@@ -190,11 +204,19 @@ fun RegisterScreen(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "Register",
-                        fontSize = 16.sp,
-                        color = Color.White
-                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "Register",
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                    }
                 }
             }
 
@@ -210,7 +232,8 @@ fun RegisterScreen(
                     containerColor = Color.Transparent
                 ),
                 contentPadding = PaddingValues(0.dp),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
+                enabled = !isLoading
             ) {
                 Box(
                     modifier = Modifier
@@ -231,54 +254,4 @@ fun RegisterScreen(
             }
         }
     }
-}
-
-private fun registerUser(
-    userId: String,
-    firstName: String,
-    lastName: String,
-    email: String,
-    password: String,
-    context: Context,
-    db: FirebaseFirestore,
-    onRegisterSuccess: () -> Unit
-) {
-    // Cek apakah user_id sudah dipakai
-    db.collection("User").document(userId).get()
-        .addOnSuccessListener { document ->
-            if (document.exists()) {
-                Toast.makeText(context, "User ID sudah dipakai!", Toast.LENGTH_SHORT).show()
-            } else {
-                // Data user sesuai struktur Firestore
-                val user = hashMapOf(
-                    "user_id" to userId,
-                    "FName" to firstName,
-                    "LName" to lastName,
-                    "Email" to email,
-                    "Password" to password,
-                    "DOB" to "",
-                    "imageURL" to ""
-                )
-
-                // Simpan dengan userId sebagai documentId
-                db.collection("User").document(userId)
-                    .set(user)
-                    .addOnSuccessListener {
-                        Toast.makeText(context, "Registrasi berhasil!", Toast.LENGTH_SHORT).show()
-
-                        // Simpan userId ke SharedPreferences
-                        val prefs = context.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE)
-                        prefs.edit().putString("userId", userId).apply()
-
-                        // Balik ke login
-                        onRegisterSuccess()
-                    }
-                    .addOnFailureListener { e ->
-                        Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-            }
-        }
-        .addOnFailureListener { e ->
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
 }

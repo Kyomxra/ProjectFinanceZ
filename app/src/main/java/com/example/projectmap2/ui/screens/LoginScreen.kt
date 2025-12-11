@@ -1,6 +1,5 @@
 package com.example.projectmap2.ui.screens
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -22,9 +21,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.projectmap2.R
+import com.example.projectmap2.ui.models.LoginState
 import com.example.projectmap2.ui.theme.*
-import com.google.firebase.firestore.FirebaseFirestore
+import com.example.projectmap2.ui.viewmodels.LoginViewModel
 
 @Composable
 fun LoginScreen(
@@ -33,6 +34,23 @@ fun LoginScreen(
 ) {
     val context = LocalContext.current
     var showDialog by remember { mutableStateOf(false) }
+    val viewModel: LoginViewModel = viewModel()
+    val loginState by viewModel.loginState.collectAsState()
+
+    // Handle login state changes for Toast messages
+    LaunchedEffect(loginState) {
+        when (val state = loginState) {
+            is LoginState.Success -> {
+                Toast.makeText(context, "Login berhasil!", Toast.LENGTH_SHORT).show()
+                viewModel.resetState()
+            }
+            is LoginState.Error -> {
+                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                viewModel.resetState()
+            }
+            else -> {}
+        }
+    }
 
     // Gradient background
     Box(
@@ -157,7 +175,7 @@ fun LoginScreen(
                 onNavigateToRegister()
             },
             onLoginSuccess = onLoginSuccess,
-            context = context
+            viewModel = viewModel
         )
     }
 }
@@ -189,11 +207,13 @@ fun LoginDialog(
     onDismiss: () -> Unit,
     onNavigateToRegister: () -> Unit,
     onLoginSuccess: (String) -> Unit,
-    context: Context
+    viewModel: LoginViewModel
 ) {
+    val context = LocalContext.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    val db = FirebaseFirestore.getInstance()
+    val loginState by viewModel.loginState.collectAsState()
+    val isLoading = loginState is LoginState.Loading
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -234,6 +254,7 @@ fun LoginDialog(
                     placeholder = { Text("you@gmail.com") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp),
+                    enabled = !isLoading,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = DarkBlue,
                         unfocusedBorderColor = Color.LightGray
@@ -260,6 +281,7 @@ fun LoginDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp),
+                    enabled = !isLoading,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = DarkBlue,
                         unfocusedBorderColor = Color.LightGray
@@ -271,11 +293,7 @@ fun LoginDialog(
                 // Login Button
                 Button(
                     onClick = {
-                        if (email.isNotEmpty() && password.isNotEmpty()) {
-                            checkLogin(email, password, context, onLoginSuccess, onDismiss, db)
-                        } else {
-                            Toast.makeText(context, "Isi semua data", Toast.LENGTH_SHORT).show()
-                        }
+                        viewModel.checkLogin(email, password, context, onLoginSuccess, onDismiss)
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -283,13 +301,22 @@ fun LoginDialog(
                     colors = ButtonDefaults.buttonColors(
                         containerColor = DarkBlue
                     ),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = !isLoading
                 ) {
-                    Text(
-                        text = "Masuk",
-                        fontSize = 16.sp,
-                        color = Color.White
-                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "Masuk",
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -297,7 +324,8 @@ fun LoginDialog(
                 // Register Link
                 TextButton(
                     onClick = onNavigateToRegister,
-                    modifier = Modifier.align(Alignment.Start)
+                    modifier = Modifier.align(Alignment.Start),
+                    enabled = !isLoading
                 ) {
                     Text(
                         text = "Register here",
@@ -308,46 +336,4 @@ fun LoginDialog(
             }
         }
     }
-}
-
-private fun checkLogin(
-    email: String,
-    password: String,
-    context: Context,
-    onLoginSuccess: (String) -> Unit,
-    onDismiss: () -> Unit,
-    db: FirebaseFirestore
-) {
-    db.collection("User")
-        .get()
-        .addOnSuccessListener { result ->
-            var isValidUser = false
-            var userId: String? = null
-
-            for (document in result) {
-                val dbEmail = document.getString("Email")
-                val dbPassword = document.getString("Password")
-
-                if (email == dbEmail && password == dbPassword) {
-                    isValidUser = true
-                    userId = document.id
-                    break
-                }
-            }
-
-            if (isValidUser && userId != null) {
-                // Save userId to SharedPreferences
-                val prefs = context.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE)
-                prefs.edit().putString("userId", userId).apply()
-
-                Toast.makeText(context, "Login berhasil!", Toast.LENGTH_SHORT).show()
-                onDismiss()
-                onLoginSuccess(userId)
-            } else {
-                Toast.makeText(context, "Email atau password salah", Toast.LENGTH_SHORT).show()
-            }
-        }
-        .addOnFailureListener { e ->
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
 }
