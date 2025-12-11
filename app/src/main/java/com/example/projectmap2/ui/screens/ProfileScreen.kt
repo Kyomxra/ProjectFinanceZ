@@ -3,17 +3,12 @@ package com.example.projectmap2.ui.screens
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
-import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -34,17 +29,15 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.projectmap2.R
+import com.example.projectmap2.ui.models.ImageUploadState
 import com.example.projectmap2.ui.theme.*
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.tasks.await
-import java.io.ByteArrayOutputStream
+import com.example.projectmap2.ui.viewmodels.ProfileViewModel
 import java.io.File
-import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,19 +48,19 @@ fun ProfileScreen(
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE)
     val userId = prefs.getString("userId", null)
-    val db = FirebaseFirestore.getInstance()
+    val viewModel: ProfileViewModel = viewModel()
 
-    var userName by remember { mutableStateOf("Loading...") }
-    var userEmail by remember { mutableStateOf("Loading...") }
-    var userDob by remember { mutableStateOf("Belum diisi") }
-    var showEditDob by remember { mutableStateOf(false) }
-    var profileBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var bannerBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val userName by viewModel.userName.collectAsState()
+    val userEmail by viewModel.userEmail.collectAsState()
+    val userDob by viewModel.userDob.collectAsState()
+    val showEditDob by viewModel.showEditDob.collectAsState()
+    val profileBitmap by viewModel.profileBitmap.collectAsState()
+    val bannerBitmap by viewModel.bannerBitmap.collectAsState()
+    val imageUploadState by viewModel.imageUploadState.collectAsState()
 
     var showImagePickerDialog by remember { mutableStateOf(false) }
     var showDobDialog by remember { mutableStateOf(false) }
     var isBannerUpload by remember { mutableStateOf(false) }
-
     var tempPhotoUri by remember { mutableStateOf<Uri?>(null) }
 
     // Camera permission launcher
@@ -86,12 +79,8 @@ fun ProfileScreen(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            uploadImageToFirebase(context, userId, it, isBannerUpload, db) { bitmap ->
-                if (isBannerUpload) {
-                    bannerBitmap = bitmap
-                } else {
-                    profileBitmap = bitmap
-                }
+            if (userId != null) {
+                viewModel.uploadImage(context, userId, it, isBannerUpload)
             }
         }
     }
@@ -102,12 +91,8 @@ fun ProfileScreen(
     ) { success ->
         if (success) {
             tempPhotoUri?.let { uri ->
-                uploadImageToFirebase(context, userId, uri, isBannerUpload, db) { bitmap ->
-                    if (isBannerUpload) {
-                        bannerBitmap = bitmap
-                    } else {
-                        profileBitmap = bitmap
-                    }
+                if (userId != null) {
+                    viewModel.uploadImage(context, userId, uri, isBannerUpload)
                 }
             }
         }
@@ -116,58 +101,23 @@ fun ProfileScreen(
     // Load user data
     LaunchedEffect(userId) {
         if (userId != null) {
-            try {
-                val doc = db.collection("User").document(userId).get().await()
-                if (doc.exists()) {
-                    val fName = doc.getString("FName") ?: ""
-                    val lName = doc.getString("LName") ?: ""
-                    userName = "$fName $lName"
-                    userEmail = doc.getString("Email") ?: ""
+            viewModel.loadUserData(userId)
+        }
+    }
 
-                    // Perbaikan untuk DOB
-                    val dob = doc.get("DOB")
-                    when {
-                        dob == null -> {
-                            userDob = "Belum diisi"
-                            showEditDob = true
-                        }
-                        dob is String -> {
-                            if (dob.isEmpty()) {
-                                userDob = "Belum diisi"
-                                showEditDob = true
-                            } else {
-                                userDob = dob
-                                showEditDob = false
-                            }
-                        }
-                        dob is com.google.firebase.Timestamp -> {
-                            // Format Timestamp ke string yang readable
-                            val date = dob.toDate()
-                            val sdf = SimpleDateFormat("dd MMMM yyyy", Locale("id", "ID"))
-                            userDob = sdf.format(date)
-                            showEditDob = false
-                        }
-                        else -> {
-                            userDob = dob.toString()
-                            showEditDob = false
-                        }
-                    }
-
-                    // Load profile image
-                    val imageBase64 = doc.getString("imageURL")
-                    if (!imageBase64.isNullOrEmpty()) {
-                        profileBitmap = decodeBase64ToBitmap(imageBase64)
-                    }
-
-                    // Load banner image
-                    val bannerBase64 = doc.getString("bannerURL")
-                    if (!bannerBase64.isNullOrEmpty()) {
-                        bannerBitmap = decodeBase64ToBitmap(bannerBase64)
-                    }
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+    // Handle image upload state
+    LaunchedEffect(imageUploadState) {
+        when (val state = imageUploadState) {
+            is ImageUploadState.Success -> {
+                val message = if (isBannerUpload) "Banner diperbarui!" else "Foto profil diperbarui!"
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                viewModel.resetImageUploadState()
             }
+            is ImageUploadState.Error -> {
+                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
+                viewModel.resetImageUploadState()
+            }
+            else -> {}
         }
     }
 
@@ -448,18 +398,16 @@ fun ProfileScreen(
         DobPickerDialog(
             onDismiss = { showDobDialog = false },
             onSave = { day, month, year ->
-                val formattedDate = "$day $month $year"
                 if (userId != null) {
-                    db.collection("User").document(userId)
-                        .update("DOB", formattedDate)
-                        .addOnSuccessListener {
-                            userDob = formattedDate
-                            showEditDob = false
+                    viewModel.updateDob(
+                        userId, day, month, year,
+                        onSuccess = {
                             Toast.makeText(context, "Tanggal lahir disimpan!", Toast.LENGTH_SHORT).show()
-                        }
-                        .addOnFailureListener {
+                        },
+                        onError = {
                             Toast.makeText(context, "Gagal menyimpan DOB", Toast.LENGTH_SHORT).show()
                         }
+                    )
                 }
                 showDobDialog = false
             }
@@ -654,91 +602,4 @@ fun DobPickerDialog(
             }
         }
     )
-}
-
-private fun uploadImageToFirebase(
-    context: Context,
-    userId: String?,
-    uri: Uri,
-    isBanner: Boolean,
-    db: FirebaseFirestore,
-    onSuccess: (Bitmap) -> Unit
-) {
-    if (userId == null) return
-
-    try {
-        val inputStream = context.contentResolver.openInputStream(uri)
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-
-        val resizedBitmap = if (isBanner) {
-            resizeBitmap(bitmap, 1200, 400)
-        } else {
-            resizeBitmap(bitmap, 800, 800)
-        }
-
-        val byteArrayOutputStream = ByteArrayOutputStream()
-        resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream)
-        val byteArray = byteArrayOutputStream.toByteArray()
-        val base64String = Base64.encodeToString(byteArray, Base64.DEFAULT)
-
-        val fieldName = if (isBanner) "bannerURL" else "imageURL"
-
-        db.collection("User").document(userId)
-            .update(fieldName, base64String)
-            .addOnSuccessListener {
-                onSuccess(resizedBitmap)
-                Toast.makeText(
-                    context,
-                    if (isBanner) "Banner diperbarui!" else "Foto profil diperbarui!",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-            .addOnFailureListener {
-                Toast.makeText(context, "Gagal update foto", Toast.LENGTH_SHORT).show()
-            }
-    } catch (e: Exception) {
-        Toast.makeText(context, "Gagal memproses gambar", Toast.LENGTH_SHORT).show()
-    }
-}
-
-private fun resizeBitmap(bitmap: Bitmap, maxWidth: Int, maxHeight: Int): Bitmap {
-    val width = bitmap.width
-    val height = bitmap.height
-
-    return if (maxWidth > maxHeight) {
-        // Banner mode
-        val targetAspect = maxWidth.toFloat() / maxHeight.toFloat()
-        val currentAspect = width.toFloat() / height.toFloat()
-
-        val (cropWidth, cropHeight) = if (currentAspect > targetAspect) {
-            val calculatedWidth = (height * targetAspect).toInt()
-            Pair(calculatedWidth, height)
-        } else {
-            val calculatedHeight = (width / targetAspect).toInt()
-            Pair(width, calculatedHeight)
-        }
-
-        val xOffset = (width - cropWidth) / 2
-        val yOffset = (height - cropHeight) / 2
-
-        val croppedBitmap = Bitmap.createBitmap(bitmap, xOffset, yOffset, cropWidth, cropHeight)
-        Bitmap.createScaledBitmap(croppedBitmap, maxWidth, maxHeight, true)
-    } else {
-        // Profile picture mode
-        val size = minOf(width, height)
-        val xOffset = (width - size) / 2
-        val yOffset = (height - size) / 2
-
-        val squareBitmap = Bitmap.createBitmap(bitmap, xOffset, yOffset, size, size)
-        Bitmap.createScaledBitmap(squareBitmap, maxWidth, maxHeight, true)
-    }
-}
-
-private fun decodeBase64ToBitmap(base64: String): Bitmap? {
-    return try {
-        val decodedBytes = Base64.decode(base64, Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
-    } catch (e: Exception) {
-        null
-    }
 }

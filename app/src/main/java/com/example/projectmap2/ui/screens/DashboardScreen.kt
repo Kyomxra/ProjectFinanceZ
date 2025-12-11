@@ -2,7 +2,6 @@ package com.example.projectmap2.ui.screens
 
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -27,25 +26,18 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.projectmap2.R
 import com.example.projectmap2.ui.theme.*
-import com.google.firebase.Timestamp
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.*
 import android.content.res.Configuration
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.projectmap2.ui.navigation.Screen
-
-data class Transaction(
-    val title: String,
-    val amount: String,
-    val date: String,
-    val timestamp: Long
-)
+import com.example.projectmap2.ui.models.Transaction
+import com.example.projectmap2.ui.models.DashboardState
+import com.example.projectmap2.ui.viewmodels.DashboardViewModel
+import kotlinx.coroutines.launch
+import java.text.NumberFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +49,7 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE)
-    val db = FirebaseFirestore.getInstance()
+    val viewModel: DashboardViewModel = viewModel()
 
     val configuration = LocalContext.current.resources.configuration
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -66,12 +58,14 @@ fun DashboardScreen(
     val circleHeight = if (isLandscape) 450.dp else 550.dp
     val circleOffsetY = if (isLandscape) (-160).dp else (-210).dp
 
-    var userName by remember { mutableStateOf("") }
+    val userName by viewModel.userName.collectAsState()
+    val monthName by viewModel.monthName.collectAsState()
+    val totalIncome by viewModel.totalIncome.collectAsState()
+    val totalExpense by viewModel.totalExpense.collectAsState()
+    val transactions by viewModel.transactions.collectAsState()
+    val dashboardState by viewModel.dashboardState.collectAsState()
+
     var greeting by remember { mutableStateOf("Selamat siang,") }
-    var monthName by remember { mutableStateOf("Loading...") }
-    var totalIncome by remember { mutableIntStateOf(0) }
-    var totalExpense by remember { mutableIntStateOf(0) }
-    var transactions by remember { mutableStateOf(listOf<Transaction>()) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var showIncomeDialog by remember { mutableStateOf(false) }
     var showExpenseDialog by remember { mutableStateOf(false) }
@@ -81,22 +75,16 @@ fun DashboardScreen(
 
     // Load user data
     LaunchedEffect(userId) {
-        try {
-            val doc = db.collection("User").document(userId).get().await()
-            if (doc.exists()) {
-                val fName = doc.getString("FName") ?: ""
-                val lName = doc.getString("LName") ?: ""
-                userName = "$fName $lName"
-            }
+        viewModel.loadUserData(userId)
+    }
 
-            loadSummaryAndTransactions(db, userId) { month, income, expense, txns ->
-                monthName = month
-                totalIncome = income
-                totalExpense = expense
-                transactions = txns
+    // Handle dashboard state changes for Toast messages
+    LaunchedEffect(dashboardState) {
+        when (val state = dashboardState) {
+            is DashboardState.Error -> {
+                Toast.makeText(context, "Error: ${state.message}", Toast.LENGTH_SHORT).show()
             }
-        } catch (e: Exception) {
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            else -> {}
         }
     }
 
@@ -166,7 +154,6 @@ fun DashboardScreen(
                             },
                             label = { Text("Location") }
                         )
-
                     }
                 }
             },
@@ -270,13 +257,11 @@ fun DashboardScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.Center
                             ) {
-
                                 MenuCard(
                                     iconRes = R.drawable.wallet,
                                     title = "Pendapatan Pokok",
                                     modifier = Modifier.weight(1f).padding(8.dp)
                                 ) {
-
                                     onNavigateToRecurringIncome()
                                 }
 
@@ -342,15 +327,7 @@ fun DashboardScreen(
             onDismiss = { showIncomeDialog = false },
             onSuccess = {
                 showIncomeDialog = false
-                // Reload data
-                scope.launch {
-                    loadSummaryAndTransactions(db, userId) { month, income, expense, txns ->
-                        monthName = month
-                        totalIncome = income
-                        totalExpense = expense
-                        transactions = txns
-                    }
-                }
+                viewModel.reloadData(userId)
             }
         )
     }
@@ -361,15 +338,7 @@ fun DashboardScreen(
             onDismiss = { showExpenseDialog = false },
             onSuccess = {
                 showExpenseDialog = false
-                // Reload data
-                scope.launch {
-                    loadSummaryAndTransactions(db, userId) { month, income, expense, txns ->
-                        monthName = month
-                        totalIncome = income
-                        totalExpense = expense
-                        transactions = txns
-                    }
-                }
+                viewModel.reloadData(userId)
             }
         )
     }
@@ -380,15 +349,7 @@ fun DashboardScreen(
             onDismiss = { showSavingDialog = false },
             onSuccess = {
                 showSavingDialog = false
-                // Reload data
-                scope.launch {
-                    loadSummaryAndTransactions(db, userId) { month, income, expense, txns ->
-                        monthName = month
-                        totalIncome = income
-                        totalExpense = expense
-                        transactions = txns
-                    }
-                }
+                viewModel.reloadData(userId)
             }
         )
     }
@@ -680,86 +641,9 @@ fun BottomSheetItem(text: String, onClick: () -> Unit) {
     )
 }
 
-private suspend fun loadSummaryAndTransactions(
-    db: FirebaseFirestore,
-    userId: String,
-    onResult: (String, Int, Int, List<Transaction>) -> Unit
-) {
-    try {
-        val calendar = Calendar.getInstance()
-        val monthName = SimpleDateFormat("MMMM yyyy", Locale("id", "ID")).format(Date())
-
-        val documents = db.collection("Transactions")
-            .whereEqualTo("user_id", userId)
-            .get()
-            .await()
-
-        var totalIncome = 0L
-        var totalExpense = 0L
-        val txnList = mutableListOf<Transaction>()
-
-        for (doc in documents) {
-            val type = doc.getString("type") ?: ""
-            val amount = doc.getLong("amount") ?: 0
-            val category = doc.getString("category") ?: "Transaksi"
-            val timestamp = doc.getTimestamp("date")
-            val note = doc.getString("note") ?: ""
-
-            when (type) {
-                "income" -> totalIncome += amount
-                "expense" -> totalExpense += amount
-                "saving" -> totalExpense += amount
-            }
-
-            val dateStr = if (timestamp != null) {
-                formatDate(timestamp)
-            } else "Unknown date"
-
-            val amountStr = formatCurrency(amount, type)
-            val title = if (note.isNotEmpty()) note else category
-
-            txnList.add(Transaction(title, amountStr, dateStr, timestamp?.toDate()?.time ?: 0))
-        }
-
-        txnList.sortByDescending { it.timestamp }
-
-        onResult(monthName, totalIncome.toInt(), totalExpense.toInt(), txnList)
-    } catch (e: Exception) {
-        onResult("Error", 0, 0, emptyList())
-    }
-}
-
-private fun formatDate(timestamp: Timestamp): String {
-    val date = timestamp.toDate()
-    val calendar = Calendar.getInstance()
-    val today = calendar.time
-
-    calendar.add(Calendar.DAY_OF_YEAR, -1)
-    val yesterday = calendar.time
-
-    return when {
-        isSameDay(date, today) -> "Today"
-        isSameDay(date, yesterday) -> "Yesterday"
-        else -> SimpleDateFormat("MMM dd, yyyy", Locale.ENGLISH).format(date)
-    }
-}
-
-private fun isSameDay(date1: Date, date2: Date): Boolean {
-    val cal1 = Calendar.getInstance().apply { time = date1 }
-    val cal2 = Calendar.getInstance().apply { time = date2 }
-    return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
-            cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
-}
-
-private fun formatCurrency(amount: Long, type: String = ""): String {
+private fun formatCurrency(amount: Long): String {
     val formatter = NumberFormat.getCurrencyInstance(Locale("id", "ID"))
-    val formatted = formatter.format(amount).replace("Rp", "Rp ")
-    return when (type) {
-        "income" -> "+ $formatted"
-        "expense" -> "- $formatted"
-        "saving" -> "💰 $formatted"
-        else -> formatted
-    }
+    return formatter.format(amount).replace("Rp", "Rp ")
 }
 
 private fun formatCurrencyWithSign(amount: Long): String {

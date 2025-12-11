@@ -4,7 +4,6 @@ import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -19,34 +18,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.projectmap2.ui.models.LocationState
+import com.example.projectmap2.ui.models.TransactionWithLocation
+import com.example.projectmap2.ui.viewmodels.LocationViewModel
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.MapView
 import com.google.android.gms.maps.model.*
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
 import java.util.*
-
-data class TransactionWithLocation(
-    val id: String,
-    val name: String,
-    val latitude: Double,
-    val longitude: Double,
-    val amount: Double,
-    val category: String,
-    val date: String,
-    val userId: String,
-    val type: String
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,15 +43,17 @@ fun LocationScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val viewModel: LocationViewModel = viewModel()
 
-    var transactions by remember { mutableStateOf<List<TransactionWithLocation>>(emptyList()) }
-    var currentLocation by remember { mutableStateOf<Location?>(null) }
+    val transactions by viewModel.transactions.collectAsState()
+    val currentLocation by viewModel.currentLocation.collectAsState()
+    val locationState by viewModel.locationState.collectAsState()
+
     var hasLocationPermission by remember { mutableStateOf(false) }
     var mapView by remember { mutableStateOf<MapView?>(null) }
     var googleMap by remember { mutableStateOf<GoogleMap?>(null) }
 
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
-    val firestore = remember { FirebaseFirestore.getInstance() }
 
     // Permission launcher
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -74,7 +63,7 @@ fun LocationScreen(
         if (isGranted) {
             try {
                 fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    currentLocation = location
+                    viewModel.updateCurrentLocation(location)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -101,7 +90,7 @@ fun LocationScreen(
         if (hasLocationPermission) {
             try {
                 fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    currentLocation = location
+                    viewModel.updateCurrentLocation(location)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -109,73 +98,9 @@ fun LocationScreen(
         }
     }
 
-    // Load transactions from Firestore - HANYA BULAN INI
+    // Load transactions
     LaunchedEffect(userId) {
-        // PERBAIKAN: Hitung start dan end bulan ini
-        val calendar = Calendar.getInstance()
-        val currentYear = calendar.get(Calendar.YEAR)
-        val currentMonth = calendar.get(Calendar.MONTH)
-
-        // Start of this month (tanggal 1 jam 00:00:00)
-        calendar.set(currentYear, currentMonth, 1, 0, 0, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        val startOfMonth = com.google.firebase.Timestamp(calendar.time)
-
-        // Start of next month (untuk batas atas)
-        calendar.set(currentYear, currentMonth + 1, 1, 0, 0, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        val startOfNextMonth = com.google.firebase.Timestamp(calendar.time)
-
-        android.util.Log.d("LocationScreen", "Loading transactions from ${startOfMonth.toDate()} to ${startOfNextMonth.toDate()}")
-
-        firestore.collection("Transactions")
-            .whereEqualTo("user_id", userId)
-            .whereEqualTo("type", "expense")
-            .whereGreaterThanOrEqualTo("date", startOfMonth)
-            .whereLessThan("date", startOfNextMonth)
-            .addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    android.util.Log.e("LocationScreen", "Error loading transactions", error)
-                    return@addSnapshotListener
-                }
-
-                val loadedTransactions = mutableListOf<TransactionWithLocation>()
-                snapshots?.documents?.forEach { doc ->
-                    try {
-                        val name = doc.getString("note") ?: doc.getString("category") ?: "Transaksi"
-                        val category = doc.getString("category") ?: "Lainnya"
-                        val amount = (doc.getLong("amount") ?: 0L).toDouble()
-                        val timestamp = doc.getTimestamp("date")
-                        val latitude = doc.getDouble("latitude")
-                        val longitude = doc.getDouble("longitude")
-
-                        if (latitude != null && longitude != null) {
-                            val dateStr = if (timestamp != null) {
-                                SimpleDateFormat("dd MMM yyyy", Locale("id", "ID"))
-                                    .format(timestamp.toDate())
-                            } else "Unknown date"
-
-                            loadedTransactions.add(
-                                TransactionWithLocation(
-                                    id = doc.id,
-                                    name = name,
-                                    latitude = latitude,
-                                    longitude = longitude,
-                                    amount = amount,
-                                    category = category,
-                                    date = dateStr,
-                                    userId = userId,
-                                    type = "expense"
-                                )
-                            )
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("LocationScreen", "Error parsing transaction", e)
-                    }
-                }
-                transactions = loadedTransactions
-                android.util.Log.d("LocationScreen", "Loaded ${loadedTransactions.size} transactions for this month")
-            }
+        viewModel.loadTransactionsWithLocation(userId)
     }
 
     // Update map when transactions or location changes
@@ -310,12 +235,28 @@ fun LocationScreen(
             )
 
             // Statistics Card
-            StatisticsCard(
-                transactions = transactions,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(16.dp)
-            )
+            when (val state = locationState) {
+                is LocationState.Success -> {
+                    StatisticsCard(
+                        totalSpent = state.statistics.totalSpent,
+                        totalTransactions = state.statistics.totalTransactions,
+                        mostFrequentLocation = state.statistics.mostFrequentLocation,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(16.dp)
+                    )
+                }
+                else -> {
+                    StatisticsCard(
+                        totalSpent = 0.0,
+                        totalTransactions = 0,
+                        mostFrequentLocation = null,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(16.dp)
+                    )
+                }
+            }
 
             // Legend Card
             LegendCard(
@@ -349,13 +290,11 @@ fun LocationScreen(
 
 @Composable
 fun StatisticsCard(
-    transactions: List<TransactionWithLocation>,
+    totalSpent: Double,
+    totalTransactions: Int,
+    mostFrequentLocation: String?,
     modifier: Modifier = Modifier
 ) {
-    val totalSpent = transactions.sumOf { it.amount }
-    val locationCounts = transactions.groupingBy { it.name }.eachCount()
-    val mostFrequent = locationCounts.maxByOrNull { it.value }
-
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -396,7 +335,7 @@ fun StatisticsCard(
                         color = Color.Gray
                     )
                     Text(
-                        text = "${transactions.size} transaksi",
+                        text = "$totalTransactions transaksi",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 4.dp)
@@ -413,11 +352,7 @@ fun StatisticsCard(
                         color = Color.Gray
                     )
                     Text(
-                        text = if (mostFrequent != null) {
-                            "${mostFrequent.key}"
-                        } else {
-                            "-"
-                        },
+                        text = mostFrequentLocation ?: "-",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 4.dp),
