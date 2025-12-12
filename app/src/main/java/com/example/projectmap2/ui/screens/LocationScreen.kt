@@ -347,7 +347,7 @@ fun StatisticsCard(
                     horizontalAlignment = Alignment.End
                 ) {
                     Text(
-                        text = "Lokasi Favorit",
+                        text = "Recent Activity",
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
