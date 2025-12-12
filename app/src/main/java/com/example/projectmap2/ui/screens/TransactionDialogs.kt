@@ -212,7 +212,7 @@ fun AddIncomeDialog(
     }
 }
 
-// ==================== EXPENSE DIALOG ====================
+// ==================== EXPENSE DIALOG WITH LOCATION ====================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseDialog(
@@ -222,7 +222,7 @@ fun AddExpenseDialog(
 ) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
-    val mlViewModel: MLViewModel = viewModel()  // ADD THIS
+    val mlViewModel: MLViewModel = viewModel()
 
     val expenseTypes = listOf("Makan", "Transport", "Belanja", "Hiburan", "Lainnya")
     var selectedType by remember { mutableStateOf(expenseTypes[0]) }
@@ -237,7 +237,7 @@ fun AddExpenseDialog(
     var amount by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
 
-    // ADD ML STATE
+    // ML STATE
     val mlState by mlViewModel.mlState.collectAsState()
 
     // Initialize ML Model
@@ -440,7 +440,7 @@ fun AddExpenseDialog(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Add Button
+                // Add Button with Location
                 Button(
                     onClick = {
                         if (amount.isEmpty()) {
@@ -454,25 +454,72 @@ fun AddExpenseDialog(
                             return@Button
                         }
 
-                        val transaction = hashMapOf(
-                            "user_id" to userId,
-                            "type" to "expense",
-                            "category" to selectedType,
-                            "amount" to amountLong,
-                            "date" to Timestamp(selectedDate),
-                            "created_at" to Timestamp(Date()),
-                            "note" to note
-                        )
+                        // Get current location
+                        val fusedLocationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
 
-                        db.collection("Transactions")
-                            .add(transaction)
-                            .addOnSuccessListener {
-                                Toast.makeText(context, "Pengeluaran ditambahkan!", Toast.LENGTH_SHORT).show()
-                                onSuccess()
+                        try {
+                            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                                val transaction = hashMapOf(
+                                    "user_id" to userId,
+                                    "type" to "expense",
+                                    "category" to selectedType,
+                                    "amount" to amountLong,
+                                    "date" to Timestamp(selectedDate),
+                                    "created_at" to Timestamp(Date()),
+                                    "note" to note,
+                                    "latitude" to (location?.latitude ?: -6.2088),  // Default Jakarta if null
+                                    "longitude" to (location?.longitude ?: 106.8456)
+                                )
+
+                                db.collection("Transactions")
+                                    .add(transaction)
+                                    .addOnSuccessListener {
+                                        Toast.makeText(context, "Pengeluaran ditambahkan!", Toast.LENGTH_SHORT).show()
+                                        onSuccess()
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                            }.addOnFailureListener {
+                                // If location fails, save with default location
+                                val transaction = hashMapOf(
+                                    "user_id" to userId,
+                                    "type" to "expense",
+                                    "category" to selectedType,
+                                    "amount" to amountLong,
+                                    "date" to Timestamp(selectedDate),
+                                    "created_at" to Timestamp(Date()),
+                                    "note" to note,
+                                    "latitude" to -6.2088,  // Default Jakarta
+                                    "longitude" to 106.8456
+                                )
+
+                                db.collection("Transactions").add(transaction)
+                                    .addOnSuccessListener {
+                                        Toast.makeText(context, "Pengeluaran ditambahkan!", Toast.LENGTH_SHORT).show()
+                                        onSuccess()
+                                    }
                             }
-                            .addOnFailureListener { e ->
-                                Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
+                        } catch (e: SecurityException) {
+                            // Permission denied, save with default
+                            val transaction = hashMapOf(
+                                "user_id" to userId,
+                                "type" to "expense",
+                                "category" to selectedType,
+                                "amount" to amountLong,
+                                "date" to Timestamp(selectedDate),
+                                "created_at" to Timestamp(Date()),
+                                "note" to note,
+                                "latitude" to -6.2088,
+                                "longitude" to 106.8456
+                            )
+
+                            db.collection("Transactions").add(transaction)
+                                .addOnSuccessListener {
+                                    Toast.makeText(context, "Pengeluaran ditambahkan!", Toast.LENGTH_SHORT).show()
+                                    onSuccess()
+                                }
+                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()

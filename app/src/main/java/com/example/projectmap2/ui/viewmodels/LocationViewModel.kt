@@ -37,28 +37,13 @@ class LocationViewModel : ViewModel() {
             try {
                 _locationState.value = LocationState.Loading
 
-                // Calculate start and end of current month
-                val calendar = Calendar.getInstance()
-                val currentYear = calendar.get(Calendar.YEAR)
-                val currentMonth = calendar.get(Calendar.MONTH)
-
-                // Start of this month
-                calendar.set(currentYear, currentMonth, 1, 0, 0, 0)
-                calendar.set(Calendar.MILLISECOND, 0)
-                val startOfMonth = Timestamp(calendar.time)
-
-                // Start of next month
-                calendar.set(currentYear, currentMonth + 1, 1, 0, 0, 0)
-                calendar.set(Calendar.MILLISECOND, 0)
-                val startOfNextMonth = Timestamp(calendar.time)
-
-                Log.d("LocationViewModel", "Loading transactions from ${startOfMonth.toDate()} to ${startOfNextMonth.toDate()}")
-
+                // TEMPORARY: Load ALL expenses (no date filter)
                 db.collection("Transactions")
                     .whereEqualTo("user_id", userId)
                     .whereEqualTo("type", "expense")
-                    .whereGreaterThanOrEqualTo("date", startOfMonth)
-                    .whereLessThan("date", startOfNextMonth)
+                    // COMMENT OUT date filters temporarily
+                    // .whereGreaterThanOrEqualTo("date", startOfMonth)
+                    // .whereLessThan("date", startOfNextMonth)
                     .addSnapshotListener { snapshots, error ->
                         if (error != null) {
                             Log.e("LocationViewModel", "Error loading transactions", error)
