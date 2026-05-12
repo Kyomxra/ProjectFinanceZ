@@ -7,10 +7,6 @@ app features:
 - savings tracker
 - transaction report
 
-Login credentials
-Email: cobacoba@gmail.com
-Password: 123456
-
 special instruction to run the app: none, just run the app and enter the credentials and you're in!
 
 Made by: Tiffany Patricia Nova
