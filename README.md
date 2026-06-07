@@ -9,7 +9,7 @@ app features:
 
 special instruction to run the app: none, just run the app and enter the credentials and you're in!
 
-Made by: Tiffany Patricia Nova
+Team: Tiffany Patricia Nova (Myself)
 
 APK: https://drive.google.com/file/d/1W1N2qy_cBu0ZTdc8DThlRh5R0Nuuzy0D/view?usp=drive_link
 
